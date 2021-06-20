@@ -1,47 +1,49 @@
 import { serve } from "https://deno.land/std@0.98.0/http/server.ts";
 
 const handlers = [
-  "/opt/logger.js",
+  "./handlers/logger.js",
   "/opt/queue.js",
   "/opt/integration.js"
   ]
 
-const handlerModulesMap = async (handlers = []) => {
-  console.log("loading handler modules");
+const handlerModulesList = async (handlers = []) => {
+  console.log("Loading handler modules\n");
   console.log(handlers);
 
-  return handlers.map(handlerModule => {
+  return handlers.map(async (handlerModule) => {
     try {
 
-      console.log("start loading handler module " + handlerModule);
+      console.log("Start loading handler module " + handlerModule);
 
       const module = await import(handlerModule);
+
+      console.log(handlerModule + " loaded ");
+      console.log(module);
 
       if (module.handle) {
 
         console.log("OK: load handler " + handlerModule);
-
+        
         return module;
 
       } else {
-        console.log("cant load handler module " + handlerModule);
-        console.log("cant find 'export async handle(event, context)' function in provided module " + handlerModule);
+        console.log("FAILED: cant load handler module " + handlerModule);
+        console.log("`async function handle(event, context)` does not exists or `export` in module " + handlerModule);
       }
 
     } catch (e) {
       console.log(e);
     }
 
-    return undefined;
-
-  }).filter(module => module !== undefined);
+  });
 
 }
 
-import("/opt/logger.js").then(m => {
+import("./handlers/logger.js").then(m => {
 
   m.handle({
-    "event": "TEST"
+    "event": "TEST",
+    "timestamp": new Date()
   }, {
     "handlerName": m.name
   });
@@ -49,10 +51,30 @@ import("/opt/logger.js").then(m => {
 });
 
 
+let loadedModules = [];
+
+handlerModulesList(handlers).then(list => {
+  Promise.all(list).then(handlers => {  
+    loadedModules = handlers.filter(handlerModule => handlerModule !== undefined);
+  });
+});
+
 const s = serve({ port: 8000 });
 console.log("http://localhost:8000/");
 for await (const req of s) {
-  req.respond({ body: message });
+
+  if(req.method === "POST") {
+    const body = JSON.parse(new TextDecoder().decode(await Deno.readAll(req.body)));
+    await handle(body);
+  }
+  
+  req.respond({ body: "OK" });
+
 }
 
-console.log(await handlerModulesMap());
+async function handle(event) {
+  event.reciveAt = new Date();
+  const config = {}; //per handler context contains config and ...
+
+  loadedModules.forEach(handler => handler.handle(event, config));
+}
